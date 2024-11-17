@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Publication Network Visualization</title>
+  <script src="https://d3js.org/d3.v6.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background-color: #1c1c1c; /* Dark background for contrast */
+      overflow: hidden; /* Fullscreen layout */
+    }
+
+    #viz-container {
+      width: 100vw;
+      height: 90vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #controls {
+      width: 100%;
+      height: 10vh;
+      background: #2c2c2c;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      padding: 10px;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: #f9f9f9;
+      border: 1px solid #d3d3d3;
+      border-radius: 5px;
+      padding: 10px;
+      pointer-events: none;
+      opacity: 0;
+      color: #333;
+    }
+
+    .link {
+      stroke: #888; /* Darker link color */
+      stroke-opacity: 0.8;
+    }
+
+    .node {
+      stroke: #000; /* Node border for visibility */
+      stroke-width: 1.5px;
+    }
+
+    label {
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div id="viz-container">
+    <svg id="viz"></svg>
+  </div>
+  <div id="controls">
+    <label for="charge">Charge:</label>
+    <input type="range" id="charge" min="-200" max="0" step="10" value="-100">
+    <label for="collision">Collision:</label>
+    <input type="range" id="collision" min="0" max="50" step="5" value="10">
+    <label for="linkStrength">Link Strength:</label>
+    <input type="range" id="linkStrength" min="0.1" max="1" step="0.1" value="0.5">
+  </div>
+
+  <script>
+    const width = window.innerWidth;
+    const height = window.innerHeight * 0.9; // 90% height for visualization
+
+    const svg = d3.select("#viz")
+      .attr("width", width)
+      .attr("height", height)
+      .call(d3.zoom().on("zoom", (event) => {
+        g.attr("transform", event.transform);
+      }))
+      .append("g");
+
+    const g = svg.append("g"); // Group for all nodes and links
+
+    const tooltip = d3.select("body").append("div")
+      .attr("class", "tooltip");
+
+    // Load data
+    d3.json("data/publication_network.json").then(data => {
+      const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+      // Create simulation
+      const simulation = d3.forceSimulation(data.nodes)
+        .force("link", d3.forceLink(data.links).id(d => d.id).distance(150).strength(0.5))
+        .force("charge", d3.forceManyBody().strength(-100))
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("collision", d3.forceCollide().radius(d => Math.sqrt(d.Citation) + 10));
+
+      // Add links
+      const link = g.selectAll(".link")
+        .data(data.links)
+        .enter().append("line")
+        .attr("class", "link")
+        .attr("stroke-width", d => Math.sqrt(d.weight) + 0.5)
+        .attr("stroke", "#888");
+
+      // Add nodes
+      const node = g.selectAll(".node")
+        .data(data.nodes)
+        .enter().append("circle")
+        .attr("class", "node")
+        .attr("r", d => Math.sqrt(d.Citation) + 5)
+        .attr("fill", d => color(d.country === "Other" ? "#A9A9A9" : d.country))
+        .call(d3.drag()
+          .on("start", dragstarted)
+          .on("drag", dragged)
+          .on("end", dragended))
+        .on("mouseover", (event, d) => {
+          // Highlight related nodes and links
+          node.style("opacity", n => n.country === d.country ? 1 : 0.2);
+          link.style("opacity", l => l.source.id === d.id || l.target.id === d.id ? 1 : 0.2);
+
+          tooltip.transition().duration(200).style("opacity", 0.9);
+          tooltip.html(`Author: ${d.id}<br>Country: ${d.country}<br>Citations: ${d.Citation}`)
+            .style("left", (event.pageX + 5) + "px")
+            .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mouseout", () => {
+          // Reset node and link opacity
+          node.style("opacity", 1);
+          link.style("opacity", 1);
+
+          tooltip.transition().duration(500).style("opacity", 0);
+        });
+
+      // Update positions on each tick
+      simulation.on("tick", () => {
+        link
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.y);
+
+        node
+          .attr("cx", d => d.x)
+          .attr("cy", d => d.y);
+      });
+
+      // Dragging functionality
+      function dragstarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      }
+
+      function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+      }
+
+      function dragended(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      }
+
+      // UI controls for force parameters
+      d3.select("#charge").on("input", function () {
+        simulation.force("charge").strength(+this.value).alpha(1).restart();
+      });
+
+      d3.select("#collision").on("input", function () {
+        simulation.force("collision").radius(+this.value).alpha(1).restart();
+      });
+
+      d3.select("#linkStrength").on("input", function () {
+        simulation.force("link").strength(+this.value).alpha(1).restart();
+      });
+    });
+  </script>
+</body>
+</html>
